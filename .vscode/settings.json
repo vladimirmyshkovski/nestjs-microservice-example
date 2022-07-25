@@ -1,8 +1,11 @@
 {
     "cSpell.words": [
+        "dind",
         "microservices",
         "minio",
         "NATS",
-        "nestjs"
+        "nestjs",
+        "opencontainers",
+        "rmetalabs"
     ]
 }
