@@ -1,0 +1,135 @@
+stages:
+  - test:latest
+  - build:latest
+  - push:latest
+  - push:stable
+  - push:release
+
+variables:
+  # using "docker" as the host is only possible if you alias the service below
+  DOCKER_HOST: tcp://docker:2375
+  # could be wrong here but although Docker defaults to overlay2,
+  # Docker-in-Docker (DIND) does not according to the following GitLab doc:
+  # https://docs.gitlab.com/ee/ci/docker/using_docker_build.html#use-the-overlayfs-driver
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: ''
+  CI_REGISTRY_IMAGE: 'git.rmetalabs.ai:5050/pia/contract-service'
+
+services:
+  - name: docker:dind
+    alias: docker
+    command: ['--tls=false']
+
+test:latest:
+  image: node:16.13.0
+  stage: test:latest
+  tags:
+    - test
+    - latest
+    - staging
+  only:
+    - develop
+  environment:
+    name: staging
+  script:
+    - yarn
+    - yarn test:cov
+  coverage: /All\sfiles.*?\s+(\d+.\d+)/
+  cache:
+    paths:
+      - node_modules/
+      - coverage/
+
+build:latest:
+  image: docker:latest
+  stage: build:latest
+  services:
+    - docker:dind
+  tags:
+    - build
+    - latest
+    - staging
+  only:
+    - develop
+  environment:
+    name: staging
+  before_script:
+    - echo -n $CI_REGISTRY_PASSWORD | docker login git.rmetalabs.ai:5050 -u $CONTAINER_REGISTRY_USER -p $CONTAINER_REGISTRY_PASSWORD
+  script:
+    # fetches the latest image (not failing if image is not found)
+    - docker pull $CI_REGISTRY_IMAGE:latest || true
+    - >
+      docker build
+      --pull
+      --build-arg http_proxy=$http_proxy
+      --build-arg https_proxy=$https_proxy
+      --build-arg no_proxy=$no_proxy
+      --cache-from $CI_REGISTRY_IMAGE:latest
+      --label "org.opencontainers.image.title=$CI_PROJECT_TITLE"
+      --label "org.opencontainers.image.url=$CI_PROJECT_URL"
+      --label "org.opencontainers.image.created=$CI_JOB_STARTED_AT"
+      --label "org.opencontainers.image.revision=$CI_COMMIT_SHA"
+      --label "org.opencontainers.image.version=$CI_COMMIT_REF_NAME"
+      --tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+      .
+    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+
+push:latest:
+  image: docker:latest
+  stage: push:latest
+  services:
+    - docker:dind
+  tags:
+    - push
+    - latest
+    - staging
+  only:
+    - develop
+  environment:
+    name: staging
+  before_script:
+    - echo -n $CI_REGISTRY_PASSWORD | docker login git.rmetalabs.ai:5050 -u $CONTAINER_REGISTRY_USER -p $CONTAINER_REGISTRY_PASSWORD
+  script:
+    - docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE:latest
+    - docker push $CI_REGISTRY_IMAGE:latest
+
+push:stable:
+  image: docker:latest
+  stage: push:stable
+  services:
+    - docker:dind
+  tags:
+    - push
+    - stable
+    - production
+  only:
+    - master
+  environment:
+    name: production
+  before_script:
+    - echo -n $CI_REGISTRY_PASSWORD | docker login git.rmetalabs.ai:5050 -u $CONTAINER_REGISTRY_USER -p $CONTAINER_REGISTRY_PASSWORD
+  script:
+    - docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE:stable
+    - docker push $CI_REGISTRY_IMAGE:stable
+
+push:release:
+  image: docker:latest
+  stage: push:release
+  services:
+    - docker:dind
+  tags:
+    - push
+    - release
+    - production
+  only:
+    - tags
+  environment:
+    name: production
+  before_script:
+    - echo -n $CI_REGISTRY_PASSWORD | docker login git.rmetalabs.ai:5050 -u $CONTAINER_REGISTRY_USER -p $CONTAINER_REGISTRY_PASSWORD
+  script:
+    - docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
+    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
