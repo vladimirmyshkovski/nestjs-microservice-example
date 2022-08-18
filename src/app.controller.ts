@@ -1,12 +1,10 @@
 import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 
-import { ApiTags } from '@nestjs/swagger';
 import { MinioClientService } from './app.service';
 import { UploadInputDto, DeleteInputDto } from './dto';
 
-@Controller('minioClient')
-@ApiTags('minioClient')
+@Controller('MinioClient')
 export class MinioClientController {
   constructor(private readonly minioClientService: MinioClientService) {}
 
